@@ -508,7 +508,7 @@ void QRPlane::RenderRGBImage(Mat &render_rgb_image)
             }
         }
     }
-    Mat element = getStructuringElement(MORPH_RECT, Size(5, 5)); 
+    Mat element = getStructuringElement(MORPH_RECT, Size(10, 10)); 
     dilate(edge_mask, edge_mask, element);
     // imshow("edge_mask",edge_mask);
     // waitKey(1);

@@ -24,6 +24,13 @@ Camera::Camera(string camera_config_filename): _camera_config_filename(camera_co
     _cx = 314.4;
     _cy = 238.9;
 
+    //     _fx = 619.395;
+    // _fy = 619.395;
+    // _cx = 311.61;
+    // _cy = 238.197;
+
+
+
 
     _depth_scale = 1;
 
