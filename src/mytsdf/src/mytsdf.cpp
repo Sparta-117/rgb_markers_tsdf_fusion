@@ -100,6 +100,53 @@ int main(int argc,char *argv[])
     cudaMalloc((void**)&gpu_rgb_im, im_height * im_width * 3 * sizeof(unsigned char));
     checkCUDA(__LINE__, cudaGetLastError());
 
+    //Pangolin
+    // Create OpenGL window in single line
+    pangolin::CreateWindowAndBind("Main",1280,980);
+    // 3D Mouse handler requires depth testing to be enabled
+    glEnable(GL_DEPTH_TEST);
+    // Define Camera Render Object (for view / scene browsing)
+    pangolin::OpenGlRenderState s_cam(
+        pangolin::ProjectionMatrix(640,480,420,420,320,240,0.1,1000),
+        pangolin::ModelViewLookAt(0.35,0.35,0.3, 0,0,0, pangolin::AxisZ)
+    );
+    const int UI_WIDTH = 200;
+    // Add named OpenGL viewport to window and provide 3D Handler
+    pangolin::View& d_cam = pangolin::CreateDisplay()
+        .SetBounds(0, 1.0, pangolin::Attach::Pix(UI_WIDTH), 1.0, -640.0f/480.0f)
+        .SetHandler(new pangolin::Handler3D(s_cam));
+    // Add named Panel and bind to variables beginning 'ui'
+    // A Panel is just a View with a default layout and input handling
+    pangolin::CreatePanel("ui")
+        .SetBounds(0.0, 1.0, 0.0, pangolin::Attach::Pix(UI_WIDTH));
+    pangolin::Var<bool> save_button("ui.Save Model",false,false);
+
+    // //定义图片面板
+    // pangolin::View& rgb_show = pangolin::Display("rgb")
+    //   .SetBounds(1,0,0,1,640.0f/480.0f)
+    //   .SetLock(pangolin::LockRight, pangolin::LockBottom);
+
+    pangolin::View& d_img1 = pangolin::Display("rgb")
+        .SetAspect(640.0f/480.0f);
+    pangolin::View& d_img2 = pangolin::Display("depth")
+        .SetAspect(640.0f/480.0f);
+    pangolin::View& d_img3 = pangolin::Display("edge")
+        .SetAspect(640.0f/480.0f);
+
+    // LayoutEqual is an EXPERIMENTAL feature - it requires that all sub-displays
+    // share the same aspect ratio, placing them in a raster fasion in the
+    // // viewport so as to maximise display size.
+    pangolin::Display("multi")
+        .SetBounds(0, 1 / 4.0f, pangolin::Attach::Pix(UI_WIDTH) , pangolin::Attach::Pix(1000))
+        .SetLayout(pangolin::LayoutEqualHorizontal)
+        .AddDisplay(d_img1)
+        .AddDisplay(d_img2)
+        .AddDisplay(d_img3);
+    //Image texture
+    pangolin::GlTexture rgb_imageTexture(640,480,GL_RGB,false,0,GL_RGB,GL_UNSIGNED_BYTE);
+    pangolin::GlTexture depth_imageTexture(640,480,GL_DEPTH_COMPONENT,false,0,GL_DEPTH_COMPONENT,GL_FLOAT);
+    pangolin::GlTexture edge_imageTexture(640,480,GL_RGB,false,0,GL_RGB,GL_UNSIGNED_BYTE);
+
     //ros node
     ros::init(argc, argv, "mytsdf");
     ros::NodeHandle nh;
@@ -111,7 +158,7 @@ int main(int argc,char *argv[])
     ros::Rate loop_rate(200);
     ROS_INFO("Start TSDF!");
 
-    while((ros::ok())&&(index<250))
+    while((ros::ok())&&(!pangolin::ShouldQuit()))
     {
         if (client.call(srv))
         {
@@ -139,22 +186,15 @@ int main(int argc,char *argv[])
             printf( " No image data \n " );
             return -1;
         }
-//        imshow("rgb",rgb_image);
-//        imshow("depth",depth_image);
-//        waitKey(1);
+
+        //pangolin
+        // Clear entire screen
+        glClear(GL_COLOR_BUFFER_BIT  | GL_DEPTH_BUFFER_BIT);
+        glClearColor(1.0f,1.0f,1.0f,1.0f);    
+
         rgb_image.copyTo(rgb_tmp);
         rgb_image.copyTo(rgb_render);
-//        Mat result_depth_image = Mat::zeros(depth_image.size(),CV_32FC1);
-//        Eigen::Matrix4f current_pose;
-//        Eigen::Matrix4f pose_to_reference;
-//        Eigen::Matrix4d pose_to_reference_optimized;
-//        vector< int > id_list_cur;
-//        vector< int > id_list_match;
-//        vector< cv::Point3f > CornersInCamCor_Match;
-//        vector< cv::Point2f > CornersInImage_Match;
-//        vector< cv::Point2f > CornersInImage_Pre;
-//        pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cube_points_cloud(new pcl::PointCloud<pcl::PointXYZRGBA>);
-//        pcl::PointCloud<pcl::PointXYZRGBA>::Ptr transformed_cube_points_cloud (new pcl::PointCloud<pcl::PointXYZRGBA>);
+
         buildmodel::QRPlane::Ptr plane1 (new buildmodel::QRPlane(numberOfQRCodeOnSide,
                                                                   camera1->_camera_intrinsic_matrix,
                                                                   camera1->_distParam));
@@ -216,47 +256,149 @@ int main(int argc,char *argv[])
                   voxel_grid_origin_x, voxel_grid_origin_y, voxel_grid_origin_z, voxel_size, trunc_margin,
                   gpu_voxel_grid_TSDF, gpu_voxel_grid_weight, gpu_voxel_grid_rgb, gpu_voxel_grid_rgb_weight, gpu_voxel_grid_rgb_diff);
 
-    }
-    // Load TSDF voxel grid from GPU to CPU memory
-    cudaMemcpy(voxel_grid_TSDF, gpu_voxel_grid_TSDF, voxel_grid_dim_x * voxel_grid_dim_y * voxel_grid_dim_z * sizeof(float), cudaMemcpyDeviceToHost);
-    cudaMemcpy(voxel_grid_weight, gpu_voxel_grid_weight, voxel_grid_dim_x * voxel_grid_dim_y * voxel_grid_dim_z * sizeof(float), cudaMemcpyDeviceToHost);
-    cudaMemcpy(voxel_grid_rgb, gpu_voxel_grid_rgb, voxel_grid_dim_x * voxel_grid_dim_y * voxel_grid_dim_z * 3 * sizeof(unsigned char), cudaMemcpyDeviceToHost);
-    cudaMemcpy(voxel_grid_rgb_weight, gpu_voxel_grid_rgb_weight, voxel_grid_dim_x * voxel_grid_dim_y * voxel_grid_dim_z * sizeof(float), cudaMemcpyDeviceToHost);
-    cudaMemcpy(voxel_grid_rgb_diff, gpu_voxel_grid_rgb_diff, voxel_grid_dim_x * voxel_grid_dim_y * voxel_grid_dim_z * sizeof(float), cudaMemcpyDeviceToHost);
-    checkCUDA(__LINE__, cudaGetLastError());
+        // Load TSDF voxel grid from GPU to CPU memory
+        cudaMemcpy(voxel_grid_TSDF, gpu_voxel_grid_TSDF, voxel_grid_dim_x * voxel_grid_dim_y * voxel_grid_dim_z * sizeof(float), cudaMemcpyDeviceToHost);
+        cudaMemcpy(voxel_grid_weight, gpu_voxel_grid_weight, voxel_grid_dim_x * voxel_grid_dim_y * voxel_grid_dim_z * sizeof(float), cudaMemcpyDeviceToHost);
+        cudaMemcpy(voxel_grid_rgb, gpu_voxel_grid_rgb, voxel_grid_dim_x * voxel_grid_dim_y * voxel_grid_dim_z * 3 * sizeof(unsigned char), cudaMemcpyDeviceToHost);
+        // cudaMemcpy(voxel_grid_rgb_weight, gpu_voxel_grid_rgb_weight, voxel_grid_dim_x * voxel_grid_dim_y * voxel_grid_dim_z * sizeof(float), cudaMemcpyDeviceToHost);
+        // cudaMemcpy(voxel_grid_rgb_diff, gpu_voxel_grid_rgb_diff, voxel_grid_dim_x * voxel_grid_dim_y * voxel_grid_dim_z * sizeof(float), cudaMemcpyDeviceToHost);
+        checkCUDA(__LINE__, cudaGetLastError());
 
-    // for(int i=0; i<voxel_grid_dim_x * voxel_grid_dim_y * voxel_grid_dim_z;i++)
-    // {
-    //     cout<<"rgb weight: "<<voxel_grid_rgb_weight[i]<<"rgb diff:"<<voxel_grid_rgb_diff[i]<<endl;
-    // }
-    // Compute surface points from TSDF voxel grid and save to point cloud .ply file
-    std::cout << "Saving surface point cloud (tsdf.ply)..." << std::endl;
-//    std::cout<<"voxel_grid_dim_x:"<<voxel_grid_TSDF<<std::endl;
-    SaveVoxelGrid2SurfacePointCloud("tsdf.ply", voxel_grid_dim_x, voxel_grid_dim_y, voxel_grid_dim_z,
-                                    voxel_size, voxel_grid_origin_x, voxel_grid_origin_y, voxel_grid_origin_z,
-                                    voxel_grid_TSDF, voxel_grid_weight, voxel_grid_rgb, 0.15f, 10.0f);
+        d_cam.Activate(s_cam);
+        glPointSize(2);
+        glBegin(GL_POINTS);
 
-    // Save TSDF voxel grid and its parameters to disk as binary file (float array)
-    std::cout << "Saving TSDF voxel grid values to disk (tsdf.bin)..." << std::endl;
-    std::string voxel_grid_saveto_path = "tsdf.bin";
-    std::ofstream outFile(voxel_grid_saveto_path, std::ios::binary | std::ios::out);
-    float voxel_grid_dim_xf = (float) voxel_grid_dim_x;
-    float voxel_grid_dim_yf = (float) voxel_grid_dim_y;
-    float voxel_grid_dim_zf = (float) voxel_grid_dim_z;
-    outFile.write((char*)&voxel_grid_dim_xf, sizeof(float));
-    outFile.write((char*)&voxel_grid_dim_yf, sizeof(float));
-    outFile.write((char*)&voxel_grid_dim_zf, sizeof(float));
-    outFile.write((char*)&voxel_grid_origin_x, sizeof(float));
-    outFile.write((char*)&voxel_grid_origin_y, sizeof(float));
-    outFile.write((char*)&voxel_grid_origin_z, sizeof(float));
-    outFile.write((char*)&voxel_size, sizeof(float));
-    outFile.write((char*)&trunc_margin, sizeof(float));
-    for (int i = 0; i < voxel_grid_dim_x * voxel_grid_dim_y * voxel_grid_dim_z; ++i)
-    {
-      // cout<<"No:"<<i<<" voxel:"<<(char*)&voxel_grid_TSDF[i]<<endl;
-      outFile.write((char*)&voxel_grid_TSDF[i], sizeof(float));
+        #pragma omp parallel for
+        for(int i=0; i<voxel_grid_dim_x * voxel_grid_dim_y * voxel_grid_dim_z;i++)
+        {
+            // If TSDF value of voxel is less than some threshold, add voxel coordinates to point cloud
+            if (std::abs(voxel_grid_TSDF[i]) < 0.15f && voxel_grid_weight[i] > 15.0f) 
+            {
+                // Compute voxel indices in int for higher positive number range
+                int z = floor(i / (voxel_grid_dim_x * voxel_grid_dim_y));
+                int y = floor((i - (z * voxel_grid_dim_x * voxel_grid_dim_y)) / voxel_grid_dim_x);
+                int x = i - (z * voxel_grid_dim_x * voxel_grid_dim_y) - (y * voxel_grid_dim_x);
+
+                // Convert voxel indices to float, and save coordinates to ply file
+                float pt_base_x = voxel_grid_origin_x + (float) x * voxel_size;
+                float pt_base_y = voxel_grid_origin_y + (float) y * voxel_size;
+                float pt_base_z = voxel_grid_origin_z + (float) z * voxel_size;
+                float pt_base_r = (float)voxel_grid_rgb[i * 3]/255;
+                float pt_base_g = (float)voxel_grid_rgb[i * 3 + 1]/255;
+                float pt_base_b = (float)voxel_grid_rgb[i * 3 + 2]/255;
+                glColor3f(pt_base_r, pt_base_g, pt_base_b);
+                glVertex3d(pt_base_x, pt_base_y, pt_base_z);
+            } 
+        }
+        glEnd();
+
+        if(pangolin::Pushed(save_button))
+        {
+            // Load TSDF voxel grid from GPU to CPU memory
+            cudaMemcpy(voxel_grid_TSDF, gpu_voxel_grid_TSDF, voxel_grid_dim_x * voxel_grid_dim_y * voxel_grid_dim_z * sizeof(float), cudaMemcpyDeviceToHost);
+            cudaMemcpy(voxel_grid_weight, gpu_voxel_grid_weight, voxel_grid_dim_x * voxel_grid_dim_y * voxel_grid_dim_z * sizeof(float), cudaMemcpyDeviceToHost);
+            cudaMemcpy(voxel_grid_rgb, gpu_voxel_grid_rgb, voxel_grid_dim_x * voxel_grid_dim_y * voxel_grid_dim_z * 3 * sizeof(unsigned char), cudaMemcpyDeviceToHost);
+            cudaMemcpy(voxel_grid_rgb_weight, gpu_voxel_grid_rgb_weight, voxel_grid_dim_x * voxel_grid_dim_y * voxel_grid_dim_z * sizeof(float), cudaMemcpyDeviceToHost);
+            cudaMemcpy(voxel_grid_rgb_diff, gpu_voxel_grid_rgb_diff, voxel_grid_dim_x * voxel_grid_dim_y * voxel_grid_dim_z * sizeof(float), cudaMemcpyDeviceToHost);
+            checkCUDA(__LINE__, cudaGetLastError());
+
+            // for(int i=0; i<voxel_grid_dim_x * voxel_grid_dim_y * voxel_grid_dim_z;i++)
+            // {
+            //     cout<<"rgb weight: "<<voxel_grid_rgb_weight[i]<<"rgb diff:"<<voxel_grid_rgb_diff[i]<<endl;
+            // }
+            // Compute surface points from TSDF voxel grid and save to point cloud .ply file
+            std::cout << "Saving surface point cloud (tsdf.ply)..." << std::endl;
+        //    std::cout<<"voxel_grid_dim_x:"<<voxel_grid_TSDF<<std::endl;
+            SaveVoxelGrid2SurfacePointCloud("tsdf.ply", voxel_grid_dim_x, voxel_grid_dim_y, voxel_grid_dim_z,
+                                            voxel_size, voxel_grid_origin_x, voxel_grid_origin_y, voxel_grid_origin_z,
+                                            voxel_grid_TSDF, voxel_grid_weight, voxel_grid_rgb, 0.15f, 15.0f);
+
+            // Save TSDF voxel grid and its parameters to disk as binary file (float array)
+            std::cout << "Saving TSDF voxel grid values to disk (tsdf.bin)..." << std::endl;
+            std::string voxel_grid_saveto_path = "tsdf.bin";
+            std::ofstream outFile(voxel_grid_saveto_path, std::ios::binary | std::ios::out);
+            float voxel_grid_dim_xf = (float) voxel_grid_dim_x;
+            float voxel_grid_dim_yf = (float) voxel_grid_dim_y;
+            float voxel_grid_dim_zf = (float) voxel_grid_dim_z;
+            outFile.write((char*)&voxel_grid_dim_xf, sizeof(float));
+            outFile.write((char*)&voxel_grid_dim_yf, sizeof(float));
+            outFile.write((char*)&voxel_grid_dim_zf, sizeof(float));
+            outFile.write((char*)&voxel_grid_origin_x, sizeof(float));
+            outFile.write((char*)&voxel_grid_origin_y, sizeof(float));
+            outFile.write((char*)&voxel_grid_origin_z, sizeof(float));
+            outFile.write((char*)&voxel_size, sizeof(float));
+            outFile.write((char*)&trunc_margin, sizeof(float));
+            for (int i = 0; i < voxel_grid_dim_x * voxel_grid_dim_y * voxel_grid_dim_z; ++i)
+            {
+              // cout<<"No:"<<i<<" voxel:"<<(char*)&voxel_grid_TSDF[i]<<endl;
+              outFile.write((char*)&voxel_grid_TSDF[i], sizeof(float));
+            }
+            outFile.close();
+
+        }
+
+        //Set some random image data and upload to GPU
+        // unsigned char * imageArray;
+        // memcpy((unsigned char*)imageArray.begin(), (void*)rgb_render.data, rgb_render.total() * rgb_render.elemSize()); //TODO
+        rgb_imageTexture.Upload(rgb_image.data,GL_BGR,GL_UNSIGNED_BYTE);
+        depth_imageTexture.Upload(depth_image.data,GL_DEPTH_COMPONENT,GL_FLOAT);
+        edge_imageTexture.Upload(rgb_render.data,GL_BGR,GL_UNSIGNED_BYTE);
+        // Activate efficiently by object
+        d_img1.Activate();
+        glColor3f(1.0f,1.0f,1.0f);
+        rgb_imageTexture.RenderToViewportFlipY();
+
+        d_img2.Activate();
+        glColor3f(1.0f,1.0f,1.0f);
+        depth_imageTexture.RenderToViewportFlipY();
+
+        d_img3.Activate();
+        glColor3f(1.0f,1.0f,1.0f);
+        edge_imageTexture.RenderToViewportFlipY();
+        // Swap frames and Process Events
+        pangolin::FinishFrame();
+
     }
-    outFile.close();
+//     // Load TSDF voxel grid from GPU to CPU memory
+//     cudaMemcpy(voxel_grid_TSDF, gpu_voxel_grid_TSDF, voxel_grid_dim_x * voxel_grid_dim_y * voxel_grid_dim_z * sizeof(float), cudaMemcpyDeviceToHost);
+//     cudaMemcpy(voxel_grid_weight, gpu_voxel_grid_weight, voxel_grid_dim_x * voxel_grid_dim_y * voxel_grid_dim_z * sizeof(float), cudaMemcpyDeviceToHost);
+//     cudaMemcpy(voxel_grid_rgb, gpu_voxel_grid_rgb, voxel_grid_dim_x * voxel_grid_dim_y * voxel_grid_dim_z * 3 * sizeof(unsigned char), cudaMemcpyDeviceToHost);
+//     cudaMemcpy(voxel_grid_rgb_weight, gpu_voxel_grid_rgb_weight, voxel_grid_dim_x * voxel_grid_dim_y * voxel_grid_dim_z * sizeof(float), cudaMemcpyDeviceToHost);
+//     cudaMemcpy(voxel_grid_rgb_diff, gpu_voxel_grid_rgb_diff, voxel_grid_dim_x * voxel_grid_dim_y * voxel_grid_dim_z * sizeof(float), cudaMemcpyDeviceToHost);
+//     checkCUDA(__LINE__, cudaGetLastError());
+
+//     // for(int i=0; i<voxel_grid_dim_x * voxel_grid_dim_y * voxel_grid_dim_z;i++)
+//     // {
+//     //     cout<<"rgb weight: "<<voxel_grid_rgb_weight[i]<<"rgb diff:"<<voxel_grid_rgb_diff[i]<<endl;
+//     // }
+//     // Compute surface points from TSDF voxel grid and save to point cloud .ply file
+//     std::cout << "Saving surface point cloud (tsdf.ply)..." << std::endl;
+// //    std::cout<<"voxel_grid_dim_x:"<<voxel_grid_TSDF<<std::endl;
+//     SaveVoxelGrid2SurfacePointCloud("tsdf.ply", voxel_grid_dim_x, voxel_grid_dim_y, voxel_grid_dim_z,
+//                                     voxel_size, voxel_grid_origin_x, voxel_grid_origin_y, voxel_grid_origin_z,
+//                                     voxel_grid_TSDF, voxel_grid_weight, voxel_grid_rgb, 0.15f, 10.0f);
+
+//     // Save TSDF voxel grid and its parameters to disk as binary file (float array)
+//     std::cout << "Saving TSDF voxel grid values to disk (tsdf.bin)..." << std::endl;
+//     std::string voxel_grid_saveto_path = "tsdf.bin";
+//     std::ofstream outFile(voxel_grid_saveto_path, std::ios::binary | std::ios::out);
+//     float voxel_grid_dim_xf = (float) voxel_grid_dim_x;
+//     float voxel_grid_dim_yf = (float) voxel_grid_dim_y;
+//     float voxel_grid_dim_zf = (float) voxel_grid_dim_z;
+//     outFile.write((char*)&voxel_grid_dim_xf, sizeof(float));
+//     outFile.write((char*)&voxel_grid_dim_yf, sizeof(float));
+//     outFile.write((char*)&voxel_grid_dim_zf, sizeof(float));
+//     outFile.write((char*)&voxel_grid_origin_x, sizeof(float));
+//     outFile.write((char*)&voxel_grid_origin_y, sizeof(float));
+//     outFile.write((char*)&voxel_grid_origin_z, sizeof(float));
+//     outFile.write((char*)&voxel_size, sizeof(float));
+//     outFile.write((char*)&trunc_margin, sizeof(float));
+//     for (int i = 0; i < voxel_grid_dim_x * voxel_grid_dim_y * voxel_grid_dim_z; ++i)
+//     {
+//       // cout<<"No:"<<i<<" voxel:"<<(char*)&voxel_grid_TSDF[i]<<endl;
+//       outFile.write((char*)&voxel_grid_TSDF[i], sizeof(float));
+//     }
+//     outFile.close();
 
     return 0;
 }
